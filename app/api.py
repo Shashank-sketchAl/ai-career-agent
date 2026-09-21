@@ -5,18 +5,20 @@ from fastapi import (
     Form,
     HTTPException,
 )
+
 from fastapi.middleware.cors import CORSMiddleware
 
-import shutil
 import os
 
 from resume_parser import extract_resume_text
 from resume_analyzer import analyze_resume
+
 from skill_gap import (
     extract_job_skills,
     calculate_skill_gap,
     calculate_match_score,
 )
+
 from career_advisor import generate_career_roadmap
 
 
@@ -41,8 +43,12 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Local development
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+
+        # Production frontend
+        "https://frontend-psi-navy-3dglne6x0.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -69,6 +75,7 @@ TEMP_RESUME_PATH = "temp_resume.pdf"
 
 @app.get("/")
 def home():
+
     return {
         "status": "success",
         "message": "AI Career Agent API is running",
@@ -82,6 +89,7 @@ def home():
 
 @app.get("/health")
 def health_check():
+
     return {
         "status": "healthy",
         "service": "AI Career Agent",
@@ -126,6 +134,7 @@ async def analyze_career(
     # ========================================================
 
     if not job_description:
+
         raise HTTPException(
             status_code=400,
             detail="Job description is required.",
@@ -134,6 +143,7 @@ async def analyze_career(
     job_description = job_description.strip()
 
     if len(job_description) < 30:
+
         raise HTTPException(
             status_code=400,
             detail=(
@@ -148,6 +158,7 @@ async def analyze_career(
     # ========================================================
 
     if not resume:
+
         raise HTTPException(
             status_code=400,
             detail="Resume PDF is required.",
@@ -161,6 +172,7 @@ async def analyze_career(
     filename = resume.filename or ""
 
     if not filename.lower().endswith(".pdf"):
+
         raise HTTPException(
             status_code=400,
             detail="Only PDF resumes are supported.",
@@ -176,6 +188,7 @@ async def analyze_career(
         and resume.content_type
         not in ALLOWED_RESUME_TYPES
     ):
+
         raise HTTPException(
             status_code=400,
             detail="Invalid resume file type. Please upload a PDF.",
@@ -250,7 +263,7 @@ async def analyze_career(
 
         if not isinstance(
             resume_data,
-            dict
+            dict,
         ):
 
             raise HTTPException(
@@ -273,7 +286,7 @@ async def analyze_career(
 
         if not isinstance(
             job_data,
-            dict
+            dict,
         ):
 
             raise HTTPException(
@@ -297,7 +310,7 @@ async def analyze_career(
 
         if not isinstance(
             skill_gap,
-            dict
+            dict,
         ):
 
             raise HTTPException(
@@ -335,7 +348,7 @@ async def analyze_career(
 
         if not isinstance(
             career_roadmap,
-            dict
+            dict,
         ):
 
             raise HTTPException(
@@ -366,9 +379,18 @@ async def analyze_career(
         }
 
 
+    # ========================================================
+    # EXPECTED HTTP ERRORS
+    # ========================================================
+
     except HTTPException:
+
         raise
 
+
+    # ========================================================
+    # UNEXPECTED ERRORS
+    # ========================================================
 
     except Exception as error:
 
@@ -386,6 +408,10 @@ async def analyze_career(
             ),
         )
 
+
+    # ========================================================
+    # CLEANUP
+    # ========================================================
 
     finally:
 
