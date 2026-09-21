@@ -1,23 +1,20 @@
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://ai-career-agent-c3ky.onrender.com";
 
-
-// ============================================================
-// ANALYZE CAREER
-// ============================================================
 
 export async function analyzeCareer(
   resumeFile,
   jobDescription
 ) {
+
   if (!resumeFile) {
-    throw new Error(
-      'Please upload your resume PDF.'
-    );
+    throw new Error("Please upload your resume PDF.");
   }
 
-  if (!jobDescription || !jobDescription.trim()) {
+  if (!jobDescription || jobDescription.trim().length < 30) {
     throw new Error(
-      'Please enter a job description.'
+      "Please provide a job description of at least 30 characters."
     );
   }
 
@@ -25,29 +22,24 @@ export async function analyzeCareer(
   const formData = new FormData();
 
   formData.append(
-    'resume',
+    "resume",
     resumeFile
   );
 
   formData.append(
-    'job_description',
-    jobDescription.trim()
+    "job_description",
+    jobDescription
   );
 
 
   let response;
-
-
-  // ========================================================
-  // SEND REQUEST
-  // ========================================================
 
   try {
 
     response = await fetch(
       `${API_BASE_URL}/analyze-career`,
       {
-        method: 'POST',
+        method: "POST",
         body: formData,
       }
     );
@@ -55,121 +47,77 @@ export async function analyzeCareer(
   } catch (error) {
 
     throw new Error(
-      'Unable to connect to the AI Career Agent backend. Make sure FastAPI is running on port 8000.'
+      "Unable to connect to the AI Career Agent server. Please try again."
     );
+
   }
 
-
-  // ========================================================
-  // HANDLE RESPONSE
-  // ========================================================
-
-  if (!response.ok) {
-
-    let errorMessage =
-      'Career analysis failed.';
-
-
-    try {
-
-      const errorData =
-        await response.json();
-
-
-      if (
-        typeof errorData.detail ===
-        'string'
-      ) {
-
-        errorMessage =
-          errorData.detail;
-
-      } else if (
-        Array.isArray(
-          errorData.detail
-        )
-      ) {
-
-        errorMessage =
-          errorData.detail
-            .map(
-              (item) =>
-                item.msg ||
-                'Invalid request.'
-            )
-            .join(', ');
-
-      }
-
-    } catch {
-
-      try {
-
-        const errorText =
-          await response.text();
-
-        if (errorText) {
-          errorMessage =
-            errorText;
-        }
-
-      } catch {
-        // Keep default error message.
-      }
-    }
-
-
-    throw new Error(
-      errorMessage
-    );
-  }
-
-
-  // ========================================================
-  // PARSE SUCCESS RESPONSE
-  // ========================================================
 
   let data;
 
-
   try {
 
-    data =
-      await response.json();
+    data = await response.json();
 
-  } catch {
+  } catch (error) {
 
     throw new Error(
-      'The backend returned an invalid response.'
+      `Server returned an invalid response. HTTP ${response.status}.`
     );
+
   }
 
 
-  // ========================================================
-  // VALIDATE RESPONSE
-  // ========================================================
-
-  if (
-    !data ||
-    typeof data !== 'object'
-  ) {
+  if (!response.ok) {
 
     throw new Error(
-      'The backend returned an empty response.'
+      data?.detail ||
+      data?.message ||
+      `Analysis failed. HTTP ${response.status}.`
     );
+
   }
 
 
-  if (
-    data.status &&
-    data.status !== 'success'
-  ) {
+  if (data?.status !== "success") {
 
     throw new Error(
-      'Career analysis was not completed successfully.'
+      data?.message ||
+      "Career analysis failed."
     );
+
   }
 
 
   return data;
 }
+
+
+export async function checkBackendHealth() {
+
+  try {
+
+    const response = await fetch(
+      `${API_BASE_URL}/health`
+    );
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const data = await response.json();
+
+    return data?.status === "success";
+
+  } catch (error) {
+
+    return false;
+
+  }
+}
+
+
+export default {
+  analyzeCareer,
+  checkBackendHealth,
+};
