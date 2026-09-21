@@ -1,12 +1,29 @@
-from sentence_transformers import SentenceTransformer
-from sentence_transformers.util import cos_sim
+import math
+import os
+
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 
 
 # ============================================================
-# SEMANTIC MODEL
+# ENVIRONMENT & GEMINI CLIENT
 # ============================================================
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+load_dotenv()
+
+client = genai.Client(
+    api_key=os.getenv("GEMINI_API_KEY")
+)
+
+
+# ============================================================
+# EMBEDDING CONFIGURATION
+# ============================================================
+
+EMBEDDING_MODEL = "gemini-embedding-001"
+
+EMBEDDING_DIMENSION = 768
 
 
 # ============================================================
@@ -158,6 +175,33 @@ SKILL_ALIASES = {
     # -------------------------
 
     "numpy library": "numpy",
+
+    # -------------------------
+    # Databases
+    # -------------------------
+
+    "mysql database": "mysql",
+    "mysql database system": "mysql",
+
+    "postgres database": "postgresql",
+    "postgres database system": "postgresql",
+
+    "mongodb database": "mongodb",
+    "mongo database": "mongodb",
+
+    # -------------------------
+    # Cloud aliases
+    # -------------------------
+
+    "google cloud platform": "google cloud",
+    "google cloud platform cloud": "google cloud",
+
+    # -------------------------
+    # GitHub
+    # -------------------------
+
+    "github repository": "github",
+    "github repositories": "github",
 }
 
 
@@ -178,9 +222,6 @@ def canonical_skill(skill):
 # RELATED TECHNOLOGY GROUPS
 # ============================================================
 
-# These technologies are related conceptually but should NOT
-# automatically match each other.
-
 TECHNOLOGY_FAMILIES = {
 
     "cloud": {
@@ -188,13 +229,13 @@ TECHNOLOGY_FAMILIES = {
         "azure",
         "google cloud",
         "gcp",
-        "oracle cloud"
+        "oracle cloud",
     },
 
     "deep_learning_framework": {
         "tensorflow",
         "pytorch",
-        "keras"
+        "keras",
     },
 
     "database": {
@@ -203,7 +244,7 @@ TECHNOLOGY_FAMILIES = {
         "postgresql",
         "mongodb",
         "oracle database",
-        "sqlite"
+        "sqlite",
     },
 
     "programming_language": {
@@ -215,14 +256,14 @@ TECHNOLOGY_FAMILIES = {
         "c++",
         "c sharp",
         "go",
-        "rust"
+        "rust",
     },
 
     "version_control": {
         "git",
         "github",
         "gitlab",
-        "bitbucket"
+        "bitbucket",
     },
 
     "web_framework": {
@@ -230,18 +271,14 @@ TECHNOLOGY_FAMILIES = {
         "django",
         "flask",
         "express",
-        "spring boot"
-    }
+        "spring boot",
+    },
 }
 
 
 def get_technology_family(skill):
     """
     Return the technology family of a skill.
-
-    This prevents semantically similar but technically
-    different technologies from being treated as direct
-    matches.
     """
 
     canonical = canonical_skill(skill)
@@ -259,17 +296,14 @@ def are_incompatible_technologies(
     resume_skill
 ):
     """
-    Determine whether two skills belong to the same
-    technology family but represent different technologies.
+    Prevent related but technically different
+    technologies from becoming direct matches.
 
-    Example:
+    Examples:
 
         AWS vs Google Cloud
         TensorFlow vs PyTorch
         MySQL vs MongoDB
-
-    These should not become MATCH simply because their
-    semantic embeddings are similar.
     """
 
     job_canonical = canonical_skill(
@@ -301,6 +335,130 @@ def are_incompatible_technologies(
 
 
 # ============================================================
+# COSINE SIMILARITY
+# ============================================================
+
+def cosine_similarity(
+    vector_a,
+    vector_b
+):
+    """
+    Calculate cosine similarity between two vectors.
+
+    This implementation avoids NumPy and PyTorch,
+    keeping the deployment lightweight.
+    """
+
+    if not vector_a or not vector_b:
+        return 0.0
+
+    if len(vector_a) != len(vector_b):
+        return 0.0
+
+    dot_product = 0.0
+    magnitude_a = 0.0
+    magnitude_b = 0.0
+
+    for value_a, value_b in zip(
+        vector_a,
+        vector_b
+    ):
+
+        dot_product += (
+            value_a * value_b
+        )
+
+        magnitude_a += (
+            value_a * value_a
+        )
+
+        magnitude_b += (
+            value_b * value_b
+        )
+
+    if (
+        magnitude_a == 0.0
+        or magnitude_b == 0.0
+    ):
+        return 0.0
+
+    return (
+        dot_product
+        /
+        (
+            math.sqrt(magnitude_a)
+            *
+            math.sqrt(magnitude_b)
+        )
+    )
+
+
+# ============================================================
+# GEMINI EMBEDDINGS
+# ============================================================
+
+def generate_embeddings(texts):
+    """
+    Generate embeddings for a list of skill names
+    using the Gemini Embedding API.
+
+    A single API request is used for the complete
+    list of texts.
+    """
+
+    if not texts:
+        return []
+
+    try:
+
+        response = client.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=texts,
+            config=types.EmbedContentConfig(
+                task_type="SEMANTIC_SIMILARITY",
+                output_dimensionality=EMBEDDING_DIMENSION,
+            ),
+        )
+
+    except Exception as error:
+
+        raise RuntimeError(
+            "Gemini embedding generation failed: "
+            f"{error}"
+        ) from error
+
+
+    if not response.embeddings:
+
+        raise RuntimeError(
+            "Gemini embedding API returned no embeddings."
+        )
+
+
+    embeddings = []
+
+    for embedding in response.embeddings:
+
+        values = getattr(
+            embedding,
+            "values",
+            None
+        )
+
+        if not values:
+
+            raise RuntimeError(
+                "Gemini returned an invalid embedding."
+            )
+
+        embeddings.append(
+            list(values)
+        )
+
+    return embeddings
+
+
+# ============================================================
 # SEMANTIC SKILL MATCHING
 # ============================================================
 
@@ -326,8 +484,13 @@ def match_skills(
 
     Exact/canonical matches are always preferred.
 
-    Technology-specific safeguards prevent related but
-    different technologies from becoming false MATCH results.
+    Semantic similarity is generated using the
+    Gemini Embedding API instead of a local
+    SentenceTransformer/PyTorch model.
+
+    Technology-specific safeguards prevent related
+    but different technologies from becoming false
+    MATCH results.
     """
 
     if not job_skills or not resume_skills:
@@ -367,40 +530,20 @@ def match_skills(
     ]
 
 
-    # ========================================================
-    # GENERATE EMBEDDINGS
-    # ========================================================
-
-    job_embeddings = model.encode(
-        job_skills,
-        convert_to_tensor=True
-    )
-
-    resume_embeddings = model.encode(
-        resume_skills,
-        convert_to_tensor=True
-    )
-
-
     results = []
 
 
     # ========================================================
-    # PROCESS EACH JOB SKILL
+    # FIND EXACT / CANONICAL MATCHES FIRST
     # ========================================================
 
-    for index, job_skill in enumerate(
-        job_skills
-    ):
+    unmatched_job_skills = []
+
+    for job_skill in job_skills:
 
         canonical_job = canonical_skill(
             job_skill
         )
-
-
-        # ====================================================
-        # STEP 1 — EXACT / CANONICAL MATCH
-        # ====================================================
 
         exact_match_index = None
 
@@ -423,51 +566,65 @@ def match_skills(
                     exact_match_index
                 ],
                 "similarity": 1.0,
-                "status": "MATCH"
+                "status": "MATCH",
             })
 
-            continue
+        else:
+
+            unmatched_job_skills.append(
+                job_skill
+            )
 
 
-        # ====================================================
-        # STEP 2 — SEMANTIC SIMILARITY
-        # ====================================================
+    # ========================================================
+    # ALL SKILLS ALREADY MATCHED
+    # ========================================================
 
-        similarities = cos_sim(
-            job_embeddings[index],
-            resume_embeddings
-        )[0]
+    if not unmatched_job_skills:
+        return results
 
 
-        # ----------------------------------------------------
-        # Sort candidates by similarity.
-        # ----------------------------------------------------
+    # ========================================================
+    # GENERATE EMBEDDINGS
+    # ========================================================
 
-        ranked_indices = similarities.argsort(
-            descending=True
-        )
+    embedding_texts = (
+        unmatched_job_skills
+        +
+        resume_skills
+    )
+
+    embeddings = generate_embeddings(
+        embedding_texts
+    )
 
 
-        best_index = None
-        best_score = 0.0
+    job_embedding_count = len(
+        unmatched_job_skills
+    )
+
+    job_embeddings = embeddings[
+        :job_embedding_count
+    ]
+
+    resume_embeddings = embeddings[
+        job_embedding_count:
+    ]
 
 
-        # ====================================================
-        # STEP 3 — FIND BEST VALID CANDIDATE
-        # ====================================================
+    # ========================================================
+    # SEMANTIC MATCHING
+    # ========================================================
 
-        for candidate_index in ranked_indices:
+    for job_index, job_skill in enumerate(
+        unmatched_job_skills
+    ):
 
-            candidate_index = candidate_index.item()
+        similarities = []
 
-            candidate_score = similarities[
-                candidate_index
-            ].item()
-
-            candidate_resume_skill = resume_skills[
-                candidate_index
-            ]
-
+        for resume_index, resume_skill in enumerate(
+            resume_skills
+        ):
 
             # -----------------------------------------------
             # Prevent incompatible technology matches.
@@ -475,19 +632,48 @@ def match_skills(
 
             if are_incompatible_technologies(
                 job_skill,
-                candidate_resume_skill
+                resume_skill
             ):
+
+                similarities.append(
+                    None
+                )
+
                 continue
 
 
-            best_index = candidate_index
-            best_score = candidate_score
+            similarity = cosine_similarity(
+                job_embeddings[job_index],
+                resume_embeddings[resume_index]
+            )
 
-            break
+            similarities.append(
+                similarity
+            )
 
 
         # ====================================================
-        # NO VALID SEMANTIC MATCH
+        # FIND BEST VALID CANDIDATE
+        # ====================================================
+
+        best_index = None
+        best_score = 0.0
+
+        for candidate_index, score in enumerate(
+            similarities
+        ):
+
+            if score is None:
+                continue
+
+            if score > best_score:
+
+                best_score = score
+                best_index = candidate_index
+
+
+        # ====================================================
+        # NO VALID MATCH
         # ====================================================
 
         if best_index is None:
@@ -496,7 +682,7 @@ def match_skills(
                 "job_skill": job_skill,
                 "resume_skill": None,
                 "similarity": 0.0,
-                "status": "MISSING"
+                "status": "MISSING",
             })
 
             continue
@@ -508,7 +694,7 @@ def match_skills(
 
 
         # ====================================================
-        # STEP 4 — DETERMINE STATUS
+        # DETERMINE STATUS
         # ====================================================
 
         if best_score >= threshold:
@@ -537,7 +723,7 @@ def match_skills(
                 best_score,
                 2
             ),
-            "status": status
+            "status": status,
         })
 
 
@@ -560,7 +746,7 @@ if __name__ == "__main__":
         "FastAPI",
         "MySQL database",
         "Google Cloud",
-        "Git"
+        "Git",
 
     ]
 
@@ -573,7 +759,7 @@ if __name__ == "__main__":
         "Deep Learning",
         "Backend API development",
         "AWS",
-        "Git"
+        "Git",
 
     ]
 
@@ -585,7 +771,7 @@ if __name__ == "__main__":
 
 
     print(
-        "\n===== SEMANTIC SKILL MATCHING =====\n"
+        "\n===== GEMINI SEMANTIC SKILL MATCHING =====\n"
     )
 
 
@@ -596,7 +782,6 @@ if __name__ == "__main__":
             if match["resume_skill"]
             else "No strong evidence"
         )
-
 
         print(
             f"{match['job_skill']} "
