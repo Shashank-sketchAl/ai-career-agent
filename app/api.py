@@ -47,7 +47,10 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
 
-        # Production frontend
+        # Production Vercel frontend
+        "https://frontend-psi-navy-3dglne6ox0.vercel.app",
+
+        # Previous Vercel deployment URL
         "https://frontend-psi-navy-3dglne6x0.vercel.app",
     ],
     allow_credentials=True,
